@@ -20,6 +20,16 @@ import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+
+import com.example.autorun.worker.AutoSignWorker;
+
+import java.util.concurrent.TimeUnit;
+
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -49,6 +59,7 @@ public class LoginActivity extends AppCompatActivity {
     public static final String HOSTS_URI = "HOST_URI";
     public static final String NET_HOST_FILE = "net_hosts";
     public static final String MAP_PREFIX = "地图：";
+    public static final String AUTO_SIGN_ENABLED = "AUTO_SIGN_ENABLED";
     AppConfig appConfig = new AppConfig();
     private LoginViewModel loginViewModel;
     private ActivityLoginBinding binding;
@@ -89,6 +100,7 @@ public class LoginActivity extends AppCompatActivity {
         final Button loginButton = binding.login;
         final Button loadMapButton = binding.loadMap;
         final Button signInButton = binding.signInOrBack;
+        final Button stopAutoSignButton = binding.stopAutoSign;
         final ProgressBar loadingProgressBar = binding.loading;
 
         usernameEditText.setText(settings.getString("phone", null));
@@ -105,6 +117,8 @@ public class LoginActivity extends AppCompatActivity {
             }
             loginButton.setEnabled(loginFormState.isDataValid());
             signInButton.setEnabled(loginFormState.isDataValid());
+            stopAutoSignButton.setEnabled(loginFormState.isDataValid());
+
             if (loginFormState.getUsernameError() != null) {
                 usernameEditText.setError(getString(loginFormState.getUsernameError()));
             }
@@ -235,24 +249,97 @@ public class LoginActivity extends AppCompatActivity {
         });
 
         loadMapButton.setOnClickListener(view -> selectFile());
+        signInButton.setText("自动签到/签退任务开启");
         signInButton.setOnClickListener(v -> {
-            App app = new App(appConfig);
-            resultArea.setText("操作结果：");
+            String phone = usernameEditText.getText().toString();
+            String password = passwordEditText.getText().toString();
+            if (phone == null || phone.trim().isEmpty() || password == null || password.trim().isEmpty()) {
+                Toast.makeText(this, "请先填写账号和密码", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            resultArea.append("\n校验账号密码中...");
             loadingProgressBar.setVisibility(View.VISIBLE);
 
-            // 配置填写的信息
-            appConfig.setPhone(usernameEditText.getText().toString());
-            appConfig.setPassword(passwordEditText.getText().toString());
-            appConfig.setAppVersion(appVersionEditText.getText().toString());
+            // 后台线程执行登录校验，避免阻塞UI
+            new Thread(() -> {
+                boolean canEnable = false;
+                String errMsg = null;
+                String pendingInfo = null;
+                try {
+                    AppConfig checkConfig = new AppConfig();
+                    checkConfig.setPhone(phone);
+                    checkConfig.setPassword(password);
+                    checkConfig.setAppVersion(appVersionEditText.getText().toString());
+                    checkConfig.setBrand(SystemUtil.getDeviceBrand());
+                    checkConfig.setMobileType(SystemUtil.getSystemModel());
+                    checkConfig.setSysVersion(SystemUtil.getSystemVersion());
+                    if (checkConfig.getToken() == null) {
+                        checkConfig.setToken(new StringBuffer());
+                    }
 
-//            SharedPreferences settings = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                    org.runrun.run.Request request = new org.runrun.run.Request(
+                            checkConfig.getToken().toString(),
+                            checkConfig
+                    );
 
-            Log.i(TAG, appConfig.toString());
-            app.setResultArea(resultArea);
-            app.setLoadingProgressBar(loadingProgressBar);
-            app.setType("signInOrBack");
-            app.start();
+                    // 1) 先校验密码
+                    org.runrun.entity.Response<org.runrun.entity.ResponseType.UserInfo> loginResp =
+                            request.login(phone, password);
+                    if (loginResp == null || loginResp.getResponse() == null) {
+                        errMsg = (loginResp == null) ? "网络异常，登录校验失败" : "账号或密码错误";
+                    } else {
+                        // 2) 登录成功后查询待签到俱乐部
+                        Long studentId = loginResp.getResponse().getStudentId();
+                        org.runrun.entity.ResponseType.SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
+                        if (signInTf == null) {
+                            errMsg = "账号校验通过，但未查询到待签到俱乐部信息";
+                        } else {
+                            pendingInfo = signInTf.toString();
+                            canEnable = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    errMsg = (e.getMessage() == null || e.getMessage().trim().isEmpty())
+                            ? "登录或俱乐部查询失败，请稍后重试"
+                            : e.getMessage();
+                }
+
+                boolean finalCanEnable = canEnable;
+                String finalErrMsg = errMsg;
+                String finalPendingInfo = pendingInfo;
+                runOnUiThread(() -> {
+                    loadingProgressBar.setVisibility(View.GONE);
+                    if (!finalCanEnable) {
+                        resultArea.append("\n自动任务未开启：" + finalErrMsg);
+                        Toast.makeText(this, "自动任务未开启", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    // 查询成功后再保存并开启自动任务
+                    editor.putString("phone", phone);
+                    editor.putString("password", password);
+                    editor.putBoolean(AUTO_SIGN_ENABLED, true);
+                    editor.apply();
+
+                    scheduleAutoSignWork(15, 5);
+                    resultArea.append("\n待签到俱乐部：" + finalPendingInfo);
+                    resultArea.append("\n账号校验通过，已开启自动签到/签退任务（后台轮询）");
+                    Toast.makeText(this, "自动签到/签退任务已开启", Toast.LENGTH_SHORT).show();
+                });
+            }).start();
         });
+
+
+        stopAutoSignButton.setOnClickListener(v -> {
+            editor.putBoolean(AUTO_SIGN_ENABLED, false);
+            editor.apply();
+            cancelAutoSignWork();
+
+            resultArea.append("\n已关闭自动签到/签退任务");
+            Toast.makeText(this, "自动签到/签退任务已关闭", Toast.LENGTH_SHORT).show();
+        });
+
         String id = getAndroidId(this);
 //        String uuid = SystemUtil.getUUID(this);
         CheckAllow checkAllow = new CheckAllow();
@@ -390,4 +477,28 @@ public class LoginActivity extends AppCompatActivity {
             }
         }
     }
+    private void scheduleAutoSignWork(long intervalMinutes, long flexMinutes) {
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
+
+        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
+                AutoSignWorker.class,
+                intervalMinutes,
+                TimeUnit.MINUTES,
+                flexMinutes,
+                TimeUnit.MINUTES
+        ).setConstraints(constraints).build();
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "auto_sign_task",
+                ExistingPeriodicWorkPolicy.REPLACE,
+                request
+        );
+    }
+    private void cancelAutoSignWork() {
+        WorkManager.getInstance(this).cancelUniqueWork("auto_sign_task");
+    }
+
+
 }

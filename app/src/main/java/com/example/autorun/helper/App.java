@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.time.LocalTime;
 
 import lombok.Setter;
 
@@ -167,60 +168,79 @@ public class App extends Thread
         }
     }
 
-//    签到/签退
+    // 签到/签退
     public void runSignInOrBack() throws IOException {
         String phone = config.getPhone();
         String password = config.getPassword();
         Request request = new Request(token.toString(), config);
-        Response<UserInfo> userInfoResponse = request.getUserInfo();
-        //更新token
-        if(userInfoResponse.getCode() != 10000) {
-            appendMsg("token无效，更新");
-            userInfoResponse = request.login(phone, password);
-            token.delete(0, token.length());
-            token.append(request.getToken());
+
+        appendMsg("校验账号密码");
+        Response<UserInfo> loginResp = request.login(phone, password);
+        if (loginResp == null || loginResp.getResponse() == null) {
+            appendMsg("账号或密码错误，无法开启自动签到/签退");
+            return;
         }
-        UserInfo userInfo = userInfoResponse.getResponse();
 
-        if (userInfo != null) {
-            Long studentId = userInfo.getStudentId();
-            SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
-            appendMsg("待签到俱乐部：{}" + signInTf.toString());
-            String signStatus = signInTf.getSignStatus();
-            String signInStatus = signInTf.getSignInStatus();
-            String signBackStatus = signInTf.getSignBackStatus();
+        // 登录成功后刷新 token
+        token.delete(0, token.length());
+        token.append(request.getToken());
 
-            if ("1".equals(signInStatus) && "1".equals(signBackStatus)) {
-                appendMsg("未知状态");
-                return ;
-            }
+        UserInfo userInfo = loginResp.getResponse();
+        Long studentId = userInfo.getStudentId();
 
-            String signType;
+        SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
+        if (signInTf == null) {
+            appendMsg("未查询到待签到俱乐部信息");
+            return;
+        }
+
+        appendMsg("待签到俱乐部：{}" + signInTf.toString());
+
+        String action = resolveActionByWindow(LocalTime.now());
+        if (action == null) {
+            appendMsg("当前不在自动签到/签退时间窗口");
+            return;
+        }
+
+        String signStatus = signInTf.getSignStatus();
+        String signInStatus = signInTf.getSignInStatus();
+        String signBackStatus = signInTf.getSignBackStatus();
+
+        if ("1".equals(signInStatus) && "1".equals(signBackStatus)) {
+            appendMsg("今日签到与签退已完成，无需重复操作");
+            return;
+        }
+
+        String signType;
+        if ("signIn".equals(action)) {
             if ("1".equals(signStatus)) {
-                //    可签到
-                signType = "1";
-            } else if ("1".equals(signInStatus) && "2".equals(signStatus)) {
-                //    可签退
-                signType = "2";
+                signType = "1"; // 可签到
             } else {
-                appendMsg("非可签到签退状态，或没有可签到项目");
-                return ;
+                appendMsg("当前时间窗为签到，但无可签到任务");
+                return;
             }
-
-            SignInOrSignBackBody signInOrSignBackBody = new SignInOrSignBackBody(
-                    signInTf.getActivityId(),
-                    signInTf.getLatitude(),
-                    signInTf.getLongitude(),
-                    signType,
-                    studentId);
-
-            Response signInOrSignBack = request.signInOrSignBack(signInOrSignBackBody);
-            appendMsg("签到结果：");
-            appendMsg(signInOrSignBack.getMsg());
         } else {
-            appendMsg("用户信息获取失败");
+            if ("1".equals(signInStatus) && "2".equals(signStatus)) {
+                signType = "2"; // 可签退
+            } else {
+                appendMsg("当前时间窗为签退，但无可签退任务");
+                return;
+            }
         }
+
+        SignInOrSignBackBody body = new SignInOrSignBackBody(
+                signInTf.getActivityId(),
+                signInTf.getLatitude(),
+                signInTf.getLongitude(),
+                signType,
+                studentId
+        );
+
+        Response signInOrSignBack = request.signInOrSignBack(body);
+        appendMsg("签到签退结果：");
+        appendMsg(signInOrSignBack.getMsg());
     }
+
     public void run(){
         try{
             if("run".equals(type)) {
@@ -246,6 +266,7 @@ public class App extends Thread
     }
 
     public void appendMsg(String msg){
+        if (resultArea == null) return;
         Context context = resultArea.getContext();
 
         Activity activity = null;
@@ -281,6 +302,7 @@ public class App extends Thread
     }
 
     public void stopLoading(){
+        if (resultArea == null || loadingProgressBar == null) return;
         Context context = resultArea.getContext();
         // 4.4 TintContextWrapper
         // 5.1 LoginActivity
@@ -300,4 +322,82 @@ public class App extends Thread
                 }
             });
     }
+    private String resolveActionByWindow(LocalTime now) {
+        // 签到窗口：07:50-08:00, 17:50-18:00
+        if (inWindow(now, LocalTime.of(7, 50), LocalTime.of(8, 0))
+                || inWindow(now, LocalTime.of(17, 50), LocalTime.of(18, 0))) {
+            return "signIn";
+        }
+
+        // 签退窗口：08:50-09:00, 18:50-19:00
+        if (inWindow(now, LocalTime.of(8, 50), LocalTime.of(9, 0))
+                || inWindow(now, LocalTime.of(18, 50), LocalTime.of(19, 0))) {
+            return "signBack";
+        }
+        return null;
+    }
+
+    private boolean inWindow(LocalTime now, LocalTime start, LocalTime end) {
+        return !now.isBefore(start) && !now.isAfter(end);
+    }
+    public String runSignInOrBackForWorker() throws IOException {
+        String phone = config.getPhone();
+        String password = config.getPassword();
+        Request request = new Request(token.toString(), config);
+
+        // 先登录校验账号密码
+        Response<UserInfo> loginResp = request.login(phone, password);
+        if (loginResp == null || loginResp.getResponse() == null) {
+            return "AUTH_FAIL";
+        }
+
+        token.delete(0, token.length());
+        token.append(request.getToken());
+
+        UserInfo userInfo = loginResp.getResponse();
+        Long studentId = userInfo.getStudentId();
+
+        SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
+        if (signInTf == null) return "NO_PENDING";
+
+        String action = resolveActionByWindow(LocalTime.now());
+        if (action == null) return "OUT_OF_WINDOW";
+
+        String signStatus = signInTf.getSignStatus();
+        String signInStatus = signInTf.getSignInStatus();
+        String signBackStatus = signInTf.getSignBackStatus();
+
+        if ("1".equals(signInStatus) && "1".equals(signBackStatus)) {
+            return "ALREADY_DONE";
+        }
+
+        String signType;
+        if ("signIn".equals(action)) {
+            if ("1".equals(signStatus)) {
+                signType = "1";
+            } else {
+                return "NO_PENDING";
+            }
+        } else {
+            if ("1".equals(signInStatus) && "2".equals(signStatus)) {
+                signType = "2";
+            } else {
+                return "NO_PENDING";
+            }
+        }
+
+        SignInOrSignBackBody body = new SignInOrSignBackBody(
+                signInTf.getActivityId(),
+                signInTf.getLatitude(),
+                signInTf.getLongitude(),
+                signType,
+                studentId
+        );
+
+        Response signResp = request.signInOrSignBack(body);
+        if (signResp == null) return "RETRY";
+        return signResp.getCode() == 10000 ? "SUCCESS" : "RETRY";
+    }
+
+
 }

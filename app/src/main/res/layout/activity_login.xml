@@ -107,18 +107,18 @@
         app:layout_constraintTop_toBottomOf="@+id/password" />
 
     <TextView
-        android:id="@+id/result"
-        android:layout_width="352dp"
-        android:layout_height="0dp"
-        android:layout_marginStart="8dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp"
-        android:scrollbars="horizontal"
-        android:scrollHorizontally="false"
-        android:text="@string/omen_result"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/signInOrBack" />
+            android:id="@+id/result"
+            android:layout_width="352dp"
+            android:layout_height="0dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:scrollbars="horizontal"
+            android:scrollHorizontally="false"
+            android:text="@string/omen_result"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/stopAutoSign" />
 
     <Button
         android:id="@+id/load_map"
@@ -151,15 +151,32 @@
         app:layout_constraintTop_toBottomOf="@+id/inputTime" />
 
     <Button
-        android:id="@+id/signInOrBack"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="40dp"
-        android:layout_marginTop="20dp"
-        android:enabled="false"
-        android:text="@string/check_in"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/load_map" />
+            android:id="@+id/signInOrBack"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginEnd="8dp"
+            android:enabled="false"
+            android:text="自动签到/签退任务开启"
+            app:layout_constraintEnd_toStartOf="@+id/stopAutoSign"
+            app:layout_constraintHorizontal_chainStyle="spread"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/load_map" />
+
+    <Button
+            android:id="@+id/stopAutoSign"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginEnd="24dp"
+            android:enabled="true"
+            android:text="自动签到/签退任务关闭"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@+id/signInOrBack"
+            app:layout_constraintTop_toBottomOf="@+id/load_map" />
+
 
     <androidx.constraintlayout.widget.Barrier
         android:id="@+id/barrier2"
