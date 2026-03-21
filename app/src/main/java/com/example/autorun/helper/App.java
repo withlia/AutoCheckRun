@@ -187,6 +187,10 @@ public class App extends Thread
 
         UserInfo userInfo = loginResp.getResponse();
         Long studentId = userInfo.getStudentId();
+        if (studentId == null) {
+            appendMsg("登录信息不完整（studentId为空），无法自动签到/签退");
+            return;
+        }
 
         SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
         if (signInTf == null) {
@@ -194,7 +198,7 @@ public class App extends Thread
             return;
         }
 
-        appendMsg("待签到俱乐部：{}" + signInTf.toString());
+        appendMsg("待签到俱乐部：" + signInTf.toString());
 
         String action = resolveActionByWindow(LocalTime.now());
         if (action == null) {
@@ -238,6 +242,10 @@ public class App extends Thread
 
         Response signInOrSignBack = request.signInOrSignBack(body);
         appendMsg("签到签退结果：");
+        if (signInOrSignBack == null) {
+            appendMsg("请求响应为空，请稍后重试");
+            return;
+        }
         appendMsg(signInOrSignBack.getMsg());
     }
 
@@ -356,6 +364,9 @@ public class App extends Thread
 
         UserInfo userInfo = loginResp.getResponse();
         Long studentId = userInfo.getStudentId();
+        if (studentId == null) {
+            return "AUTH_FAIL";
+        }
 
         SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
         if (signInTf == null) return "NO_PENDING";
@@ -396,8 +407,6 @@ public class App extends Thread
 
         Response signResp = request.signInOrSignBack(body);
         if (signResp == null) return "RETRY";
-        return signResp.getCode() == 10000 ? "SUCCESS" : "RETRY";
+        return signResp.getCode() == 10000 ? "SUCCESS" : "REMOTE_FAIL_" + signResp.getCode();
     }
-
-
 }

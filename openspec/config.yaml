@@ -1,0 +1,18 @@
+  schema: spec-driven
+
+  context: |
+    Tech stack: Java, JavaScript, Gradle
+    Project: Android app \+ automation scripts
+    Build: Gradle multi-module
+    Conventions:
+      - Java follows Google Java Style
+      - JavaScript uses ESLint \+ Prettier
+      - Use Conventional Commits
+
+  rules:
+    proposal:
+      - 必须包含: 目标、范围、非目标、风险、验收标准
+      - 控制在 500 词以内
+    tasks:
+      - 每个任务不超过 2 小时
+      - 每个任务必须有可验证结果
