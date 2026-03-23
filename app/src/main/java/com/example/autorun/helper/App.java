@@ -3,6 +3,7 @@ package com.example.autorun.helper;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
+import android.os.Build;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -31,28 +32,31 @@ import org.runrun.utils.TrackUtils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
-import java.util.*;
 import java.time.LocalTime;
+import java.util.Date;
 
 import lombok.Setter;
 
 /**
- * Hello world!
- *
+ * 主业务线程
  */
-public class App extends Thread
-{
+public class App extends Thread {
     AppConfig config;
+
     @Setter
     private InputStream mapInput;
 
     @Setter
     private TextView resultArea;
+
     @Setter
     ProgressBar loadingProgressBar;
+
     public static String ERROR;
+
     @Setter
     private String type;
+
     private final StringBuffer token;
 
     public App(AppConfig config) {
@@ -60,29 +64,27 @@ public class App extends Thread
         token = config.getToken();
     }
 
-//    跑步
+    // 跑步
     @SuppressLint("DefaultLocale")
     public void runRun() throws IOException, ParseException {
-
         appendMsg("开始");
         // ==========配置 START==============
         String phone = config.getPhone();
         String password = config.getPassword();
-        int schoolSite = 0;     // 0航空港，1龙泉暂不支持
-        long runDistance = config.getDistance();        // 路程米
-        int runTime = config.getRunTime();               // 时间分钟
-
-        // 型号仓库： https://github.com/KHwang9883/MobileModels
+        int schoolSite = 0; // 0航空港，1龙泉暂不支持
+        long runDistance = config.getDistance(); // 路程米
+        int runTime = config.getRunTime(); // 时间分钟
         // ==========配置 END==============
 
         if (config.getBrand().length() == 0) {
             appendMsg("请配置手机型号信息");
             return;
         }
+
         // 计算平均配速，防止跑太快
         double average = 1.0 * runTime / runDistance * 1000;
 
-        if(Double.isNaN(average)){
+        if (Double.isNaN(average)) {
             appendMsg("输入不正确");
             return;
         }
@@ -104,197 +106,124 @@ public class App extends Thread
         }
         appendMsg(String.format("平均配速：%.2f\n", average));
 
-//        if(config.getRunTime() > 0)return;
-
         Request request = new Request(token.toString(), config);
         appendMsg("开始登录");
         Response<UserInfo> userInfoResponse = request.login(phone, password);
-        UserInfo userInfo = userInfoResponse.getResponse();
-        if(userInfo == null ) {
+        if (userInfoResponse == null || userInfoResponse.getResponse() == null) {
             appendMsg("登录失败");
             return;
         }
+
+        UserInfo userInfo = userInfoResponse.getResponse();
         long userId = userInfo.getUserId();
-        if (userId != -1) {
-            token.delete(0, token.length());
-            token.append(request.getToken());
+        if (userId == -1) {
+            appendMsg("用户Id获取失败");
+            return;
+        }
 
-            appendMsg("获取跑步标准");
-            RunStandard runStandard = request.getRunStandard(userInfo.getSchoolId());
-            appendMsg("获取学校经纬度区域信息");
-            SchoolBound[] schoolBounds = request.getSchoolBound(userInfo.getSchoolId());
+        token.delete(0, token.length());
+        token.append(request.getToken());
 
-            appendMsg("生成跑步数据");
-            // 新增跑步数据
-            NewRecordBody recordBody = new NewRecordBody();
-            recordBody.setUserId(userId);
-            recordBody.setAppVersions(config.getAppVersion());
-            recordBody.setBrand(config.getBrand());
-            recordBody.setMobileType(config.getMobileType());
-            recordBody.setSysVersions(config.getSysVersion());
-            recordBody.setRunDistance(runDistance);
-            recordBody.setRunTime(runTime);
-            recordBody.setYearSemester(runStandard.getSemesterYear());
-            recordBody.setRealityTrackPoints(schoolBounds[schoolSite].getSiteBound() + "--");
+        appendMsg("获取跑步标准");
+        RunStandard runStandard = request.getRunStandard(userInfo.getSchoolId());
+        appendMsg("获取学校经纬度区域信息");
+        SchoolBound[] schoolBounds = request.getSchoolBound(userInfo.getSchoolId());
 
-            // 今天日期 年-月-日
-            @SuppressLint("SimpleDateFormat") SimpleDateFormat sdf = new SimpleDateFormat();
-            sdf.applyPattern("yyyy-MM-dd");
-            Date date = new Date();
-            String formatTime = sdf.format(date);
-            recordBody.setRecordDate(formatTime);
+        appendMsg("生成跑步数据");
+        NewRecordBody recordBody = new NewRecordBody();
+        recordBody.setUserId(userId);
+        recordBody.setAppVersions(config.getAppVersion());
+        recordBody.setBrand(config.getBrand());
+        recordBody.setMobileType(config.getMobileType());
+        recordBody.setSysVersions(config.getSysVersion());
+        recordBody.setRunDistance(runDistance);
+        recordBody.setRunTime(runTime);
+        recordBody.setYearSemester(runStandard.getSemesterYear());
+        recordBody.setRealityTrackPoints(schoolBounds[schoolSite].getSiteBound() + "--");
 
-            // 生成跑步数据
-            String tack = genTack(runDistance);
-            recordBody.setTrackPoints(tack);
+        @SuppressLint("SimpleDateFormat")
+        SimpleDateFormat sdf = new SimpleDateFormat();
+        sdf.applyPattern("yyyy-MM-dd");
+        Date date = new Date();
+        String formatTime = sdf.format(date);
+        recordBody.setRecordDate(formatTime);
 
-            //发送数据
-            appendMsg("提交跑步数据");
-            String result = request.recordNew(recordBody);
-            Response<NewRecordResult> response = JsonUtils.string2Obj(result, new TypeReference<Response<NewRecordResult>>() {
-            });
-            appendMsg("");
-            appendMsg("返回原始数据：" + result);
-            appendMsg("解析数据：");
-            appendMsg("跑步结果：" + response.getCode() + " - " + response.getMsg());
-            NewRecordResult response1 = response.getResponse();
+        String tack = genTack(runDistance);
+        recordBody.setTrackPoints(tack);
+
+        appendMsg("提交跑步数据");
+        String result = request.recordNew(recordBody);
+        Response<NewRecordResult> response = JsonUtils.string2Obj(result, new TypeReference<Response<NewRecordResult>>() {});
+        appendMsg("");
+        appendMsg("返回原始数据：" + result);
+        appendMsg("解析数据：");
+        appendMsg("跑步结果：" + response.getCode() + " - " + response.getMsg());
+
+        NewRecordResult response1 = response.getResponse();
+        if (response1 != null) {
             appendMsg("生成的跑步ID：" + response1.getRecordId());
             appendMsg("结果状态：" + response1.getResultStatus());
             appendMsg("结果描述：" + response1.getResultDesc());
             appendMsg("超速警告次数：" + response1.getOverSpeedWarn());
             appendMsg("警告内容：" + response1.getWarnContent());
-        } else {
-            appendMsg("用户Id获取失败");
         }
     }
 
     // 签到/签退
     public void runSignInOrBack() throws IOException {
-        String phone = config.getPhone();
-        String password = config.getPassword();
-        Request request = new Request(token.toString(), config);
-
-        appendMsg("校验账号密码");
-        Response<UserInfo> loginResp = request.login(phone, password);
-        if (loginResp == null || loginResp.getResponse() == null) {
-            appendMsg("账号或密码错误，无法开启自动签到/签退");
-            return;
-        }
-
-        // 登录成功后刷新 token
-        token.delete(0, token.length());
-        token.append(request.getToken());
-
-        UserInfo userInfo = loginResp.getResponse();
-        Long studentId = userInfo.getStudentId();
-        if (studentId == null) {
-            appendMsg("登录信息不完整（studentId为空），无法自动签到/签退");
-            return;
-        }
-
-        SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
-        if (signInTf == null) {
-            appendMsg("未查询到待签到俱乐部信息");
-            return;
-        }
-
-        appendMsg("待签到俱乐部：" + signInTf.toString());
-
-        String action = resolveActionByWindow(LocalTime.now());
-        if (action == null) {
-            appendMsg("当前不在自动签到/签退时间窗口");
-            return;
-        }
-
-        String signStatus = signInTf.getSignStatus();
-        String signInStatus = signInTf.getSignInStatus();
-        String signBackStatus = signInTf.getSignBackStatus();
-
-        if ("1".equals(signInStatus) && "1".equals(signBackStatus)) {
-            appendMsg("今日签到与签退已完成，无需重复操作");
-            return;
-        }
-
-        String signType;
-        if ("signIn".equals(action)) {
-            if ("1".equals(signStatus)) {
-                signType = "1"; // 可签到
-            } else {
-                appendMsg("当前时间窗为签到，但无可签到任务");
-                return;
-            }
-        } else {
-            if ("1".equals(signInStatus) && "2".equals(signStatus)) {
-                signType = "2"; // 可签退
-            } else {
-                appendMsg("当前时间窗为签退，但无可签退任务");
-                return;
-            }
-        }
-
-        SignInOrSignBackBody body = new SignInOrSignBackBody(
-                signInTf.getActivityId(),
-                signInTf.getLatitude(),
-                signInTf.getLongitude(),
-                signType,
-                studentId
-        );
-
-        Response signInOrSignBack = request.signInOrSignBack(body);
-        appendMsg("签到签退结果：");
-        if (signInOrSignBack == null) {
-            appendMsg("请求响应为空，请稍后重试");
-            return;
-        }
-        appendMsg(signInOrSignBack.getMsg());
+        String result = runSignInOrBackForWorker();
+        appendMsg("签到签退结果：" + result);
     }
 
-    public void run(){
-        try{
-            if("run".equals(type)) {
+    public void run() {
+        try {
+            if ("run".equals(type)) {
                 runRun();
-            }else if("signInOrBack".equals(type)){
+            } else if ("signInOrBack".equals(type)) {
                 runSignInOrBack();
-            }else{
+            } else {
                 appendMsg("未知操作");
             }
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
             String msg;
-            if(e instanceof RuntimeException) {
+            if (e instanceof RuntimeException) {
                 StackTraceElement traceElement = e.getStackTrace()[0];
-                msg = e.getMessage() + "\n异常来源：" +traceElement.getClassName() + " - line:" + traceElement.getLineNumber();
-            }else{
+                msg = e.getMessage() + "\n异常来源：" + traceElement.getClassName() + " - line:" + traceElement.getLineNumber();
+            } else {
                 msg = e.getMessage();
             }
             appendMsg(msg);
-        }finally {
+        } finally {
             stopLoading();
         }
     }
 
-    public void appendMsg(String msg){
+    public void appendMsg(String msg) {
         if (resultArea == null) return;
         Context context = resultArea.getContext();
 
         Activity activity = null;
-        if(context instanceof LoginActivity) {
+        if (context instanceof LoginActivity) {
             activity = (Activity) context;
-        }else if(context instanceof TintContextWrapper){
-            activity = (Activity)((TintContextWrapper) context).getBaseContext();
+        } else if (context instanceof TintContextWrapper) {
+            activity = (Activity) ((TintContextWrapper) context).getBaseContext();
         }
-        if(activity != null)
+
+        if (activity != null) {
             activity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     resultArea.append("\n" + msg);
                 }
             });
+        }
     }
 
     public String genTack(long distance) {
-        if(mapInput == null)
+        if (mapInput == null) {
             mapInput = org.runrun.App.class.getResourceAsStream("/map.json");
+        }
         String json = FileUtil.ReadFile(mapInput);
         try {
             mapInput.close();
@@ -309,51 +238,64 @@ public class App extends Thread
         return TrackUtils.gen(distance, locations);
     }
 
-    public void stopLoading(){
+    public void stopLoading() {
         if (resultArea == null || loadingProgressBar == null) return;
         Context context = resultArea.getContext();
-        // 4.4 TintContextWrapper
-        // 5.1 LoginActivity
 
         Activity activity = null;
-        if(context instanceof LoginActivity) {
+        if (context instanceof LoginActivity) {
             activity = (Activity) context;
-        }else if(context instanceof TintContextWrapper){
-            activity = (Activity)((TintContextWrapper) context).getBaseContext();
+        } else if (context instanceof TintContextWrapper) {
+            activity = (Activity) ((TintContextWrapper) context).getBaseContext();
         }
 
-        if(activity != null)
+        if (activity != null) {
             activity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     loadingProgressBar.setVisibility(View.INVISIBLE);
                 }
             });
+        }
     }
+
+    /**
+     * 旧时间窗逻辑保留，仅用于日志提示，不阻断自动流程。
+     */
     private String resolveActionByWindow(LocalTime now) {
-        // 签到窗口：07:50-08:00, 17:50-18:00
-        if (inWindow(now, LocalTime.of(7, 50), LocalTime.of(8, 0))
-                || inWindow(now, LocalTime.of(17, 50), LocalTime.of(18, 0))) {
-            return "signIn";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (inWindow(now, LocalTime.of(7, 50), LocalTime.of(8, 0))
+                    || inWindow(now, LocalTime.of(17, 50), LocalTime.of(18, 0))) {
+                return "signIn";
+            }
         }
 
-        // 签退窗口：08:50-09:00, 18:50-19:00
-        if (inWindow(now, LocalTime.of(8, 50), LocalTime.of(9, 0))
-                || inWindow(now, LocalTime.of(18, 50), LocalTime.of(19, 0))) {
-            return "signBack";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (inWindow(now, LocalTime.of(8, 50), LocalTime.of(9, 0))
+                    || inWindow(now, LocalTime.of(18, 50), LocalTime.of(19, 0))) {
+                return "signBack";
+            }
         }
         return null;
     }
 
     private boolean inWindow(LocalTime now, LocalTime start, LocalTime end) {
-        return !now.isBefore(start) && !now.isAfter(end);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return !now.isBefore(start) && !now.isAfter(end);
+        }
+        return false;
     }
+
+    /**
+     * 自动签到/签退核心：
+     * 1. 以服务端状态为准自动推断 signType，避免时间窗导致不触发。
+     * 2. 仍保留时间窗日志，便于排错。
+     */
     public String runSignInOrBackForWorker() throws IOException {
         String phone = config.getPhone();
         String password = config.getPassword();
         Request request = new Request(token.toString(), config);
 
-        // 先登录校验账号密码
         Response<UserInfo> loginResp = request.login(phone, password);
         if (loginResp == null || loginResp.getResponse() == null) {
             return "AUTH_FAIL";
@@ -371,30 +313,40 @@ public class App extends Thread
         SignInTf signInTf = request.getSignInTf(String.valueOf(studentId));
         if (signInTf == null) return "NO_PENDING";
 
-        String action = resolveActionByWindow(LocalTime.now());
-        if (action == null) return "OUT_OF_WINDOW";
-
         String signStatus = signInTf.getSignStatus();
         String signInStatus = signInTf.getSignInStatus();
         String signBackStatus = signInTf.getSignBackStatus();
+
+        // 调试信息：时间窗只用于提示，不用于硬拦截
+        String windowAction = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            windowAction = resolveActionByWindow(LocalTime.now());
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            appendMsg("状态: signStatus=" + signStatus
+                    + ", signInStatus=" + signInStatus
+                    + ", signBackStatus=" + signBackStatus
+                    + ", windowAction=" + windowAction
+                    + ", now=" + LocalTime.now());
+        }
 
         if ("1".equals(signInStatus) && "1".equals(signBackStatus)) {
             return "ALREADY_DONE";
         }
 
-        String signType;
-        if ("signIn".equals(action)) {
-            if ("1".equals(signStatus)) {
-                signType = "1";
-            } else {
-                return "NO_PENDING";
-            }
-        } else {
-            if ("1".equals(signInStatus) && "2".equals(signStatus)) {
-                signType = "2";
-            } else {
-                return "NO_PENDING";
-            }
+        String signType = null;
+
+        // 优先签退：已签入且当前处于可签退状态
+        if ("1".equals(signInStatus) && "2".equals(signStatus) && !"1".equals(signBackStatus)) {
+            signType = "2";
+        }
+        // 其次签到：当前处于可签到状态，且还未签到
+        else if ("1".equals(signStatus) && !"1".equals(signInStatus)) {
+            signType = "1";
+        }
+
+        if (signType == null) {
+            return "NO_PENDING";
         }
 
         SignInOrSignBackBody body = new SignInOrSignBackBody(
@@ -407,6 +359,10 @@ public class App extends Thread
 
         Response signResp = request.signInOrSignBack(body);
         if (signResp == null) return "RETRY";
-        return signResp.getCode() == 10000 ? "SUCCESS" : "REMOTE_FAIL_" + signResp.getCode();
+
+        if (signResp.getCode() == 10000) {
+            return "2".equals(signType) ? "SUCCESS_SIGN_BACK" : "SUCCESS_SIGN_IN";
+        }
+        return "REMOTE_FAIL_" + signResp.getCode() + "_" + signResp.getMsg();
     }
 }

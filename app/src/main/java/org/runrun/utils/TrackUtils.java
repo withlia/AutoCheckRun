@@ -27,10 +27,19 @@ public class TrackUtils {
      * @return
      */
     public static String gen(long distance, Location[] locations){
+        if (locations == null || locations.length == 0) {
+            System.out.println("locations为空");
+            return JsonUtils.obj2String(new LinkedList<String>());
+        }
+
         int currentDistance = 0;
         // 随机起始点
         int startIndex = (int)(locations.length * Math.random());
         Location startLocation = locations[startIndex];
+        if (startLocation == null || startLocation.getLocation() == null) {
+            System.out.println("起始点无效");
+            return JsonUtils.obj2String(new LinkedList<String>());
+        }
         Location currentLocation = startLocation;
         // 路径集合
         List<String> result = new LinkedList<>();
@@ -43,18 +52,27 @@ public class TrackUtils {
         result.add(String.format("%s-%s-%s-%.1f", current[0], current[1], startTime, randAccuracy()));
 
         while (currentDistance < distance){
+            if (currentLocation == null || currentLocation.getLocation() == null) {
+                System.out.println("当前节点无效");
+                break;
+            }
             current = currentLocation.getLocation().split(",");
             int[] edge = currentLocation.getEdge();
 
             // 随机选择下一个结点
-            if(edge.length == 0){
+            if(edge == null || edge.length == 0){
                 System.out.println("edge为空");
+                break;
             }
             int randInt = randInt(0, edge.length);
             int edgeIndex = edge[randInt];
             // 尽量不往回走
             if(edgeIndex == lastIndex){
                 edgeIndex = edge[(randInt + 1)%edge.length];
+            }
+            if (edgeIndex < 0 || edgeIndex >= locations.length || locations[edgeIndex] == null || locations[edgeIndex].getLocation() == null) {
+                System.out.println("edge索引无效");
+                break;
             }
             // 下一个位置
             Location next = locations[edgeIndex];
@@ -83,6 +101,9 @@ public class TrackUtils {
 
             lastIndex = currentLocation.getId();
             currentLocation = next;
+        }
+        if (currentLocation == null || currentLocation.getLocation() == null) {
+            return JsonUtils.obj2String(result);
         }
         startTime += randInt(5, 10) * 1000L;
         String replace = currentLocation.getLocation().replace(',', '-');
